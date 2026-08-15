@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Upload, LogOut, User, Database, Building2 } from "lucide-react";
+import { Download, Upload, LogOut, User, Database, Building2, UserPlus, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { Logo } from "@/components/Logo";
@@ -21,12 +21,17 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
   component: Configuracoes,
 });
 
+const formVazio = { nome: "", email: "", senha: "", confirmar: "" };
+
 function Configuracoes() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { sessao } = useSessao();
   const { empresa } = useEmpresa();
   const [ocupado, setOcupado] = useState(false);
+
+  const [formUsuario, setFormUsuario] = useState(formVazio);
+  const [cadastrando, setCadastrando] = useState(false);
 
   async function exportar() {
     setOcupado(true);
@@ -92,6 +97,55 @@ function Configuracoes() {
     await navigate({ to: "/auth", replace: true });
   }
 
+  async function cadastrarUsuario(e: React.FormEvent) {
+    e.preventDefault();
+
+    const nome = formUsuario.nome.trim();
+    const email = formUsuario.email.trim().toLowerCase();
+    const senha = formUsuario.senha;
+
+    if (!nome) return toast.error("Informe o nome completo.");
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) return toast.error("Informe um e-mail válido.");
+    if (senha.length < 6) return toast.error("A senha deve ter no mínimo 6 caracteres.");
+    if (senha !== formUsuario.confirmar) return toast.error("As senhas não conferem.");
+
+    setCadastrando(true);
+    try {
+      const { data: sessaoData } = await supabase.auth.getSession();
+      const token = sessaoData.session?.access_token;
+      if (!token) throw new Error("Sessão expirada. Faça login novamente.");
+
+      const apiUrl = `${import.meta.env["VITE_SUPABASE_URL"]}/functions/v1/criar-usuario`;
+      const resp = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ?? "",
+        },
+        body: JSON.stringify({ nome, email, senha }),
+      });
+
+      const resultado = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const msg =
+          (resultado as { error?: string }).error ||
+          (resp.status === 401
+            ? "Sessão expirada. Faça login novamente."
+            : `Falha ao cadastrar (${resp.status}).`);
+        throw new Error(msg);
+      }
+
+      toast.success(`Usuário "${nome}" cadastrado com sucesso!`);
+      setFormUsuario(formVazio);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Falha ao cadastrar usuário.";
+      toast.error(msg);
+    } finally {
+      setCadastrando(false);
+    }
+  }
+
   return (
     <div>
       <AppHeader titulo="Configurações" voltarPara="/inicio" />
@@ -119,6 +173,90 @@ function Configuracoes() {
           <p className="text-sm text-muted-foreground">{sessao?.email}</p>
         </div>
 
+        <div className="rounded-2xl bg-card p-4 shadow-card">
+          <p className="flex items-center gap-1 text-xs font-bold text-muted-foreground">
+            <UserPlus className="size-3" /> CADASTRAR NOVO USUÁRIO
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Crie contas para outros vendedores sem sair da sua sessão.
+          </p>
+          <form className="mt-3 space-y-3" onSubmit={cadastrarUsuario}>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Nome completo *</label>
+              <input
+                required
+                autoComplete="off"
+                value={formUsuario.nome}
+                onChange={(e) => setFormUsuario({ ...formUsuario, nome: e.target.value })}
+                placeholder="Ex: Vendedor 2"
+                className="mt-1 h-13 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">E-mail *</label>
+              <input
+                required
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                value={formUsuario.email}
+                onChange={(e) => setFormUsuario({ ...formUsuario, email: e.target.value })}
+                placeholder="vendedor@email.com"
+                className="mt-1 h-13 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground">Senha *</label>
+                <input
+                  required
+                  type="password"
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={formUsuario.senha}
+                  onChange={(e) => setFormUsuario({ ...formUsuario, senha: e.target.value })}
+                  placeholder="Mín. 6 caracteres"
+                  className="mt-1 h-13 w-full rounded-xl border border-border bg-background px-4 py-3 outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground">Confirmar *</label>
+                <input
+                  required
+                  type="password"
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={formUsuario.confirmar}
+                  onChange={(e) => setFormUsuario({ ...formUsuario, confirmar: e.target.value })}
+                  placeholder="Repita a senha"
+                  className={`mt-1 h-13 w-full rounded-xl border bg-background px-4 py-3 outline-none focus:border-primary ${
+                    formUsuario.confirmar && formUsuario.confirmar !== formUsuario.senha
+                      ? "border-primary"
+                      : "border-border"
+                  }`}
+                />
+              </div>
+            </div>
+            {formUsuario.confirmar && formUsuario.confirmar !== formUsuario.senha && (
+              <p className="text-xs font-semibold text-primary">As senhas não conferem.</p>
+            )}
+            <button
+              type="submit"
+              disabled={cadastrando}
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-extrabold text-primary-foreground shadow-float disabled:opacity-50"
+            >
+              {cadastrando ? (
+                <>
+                  <Loader2 className="size-5 animate-spin" /> CADASTRANDO...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="size-5" /> CADASTRAR USUÁRIO
+                </>
+              )}
+            </button>
+          </form>
+        </div>
 
         <div className="rounded-2xl bg-card p-4 shadow-card">
           <p className="text-xs font-bold text-muted-foreground">
