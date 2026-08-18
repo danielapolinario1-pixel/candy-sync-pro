@@ -43,6 +43,25 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // SEGURANCA: apenas admin pode criar contas.
+    const adminCheck = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: papeis } = await adminCheck
+      .from("user_roles")
+      .select("user_id")
+      .eq("role", "admin");
+    const existeAdmin = (papeis ?? []).length > 0;
+    const chamadorEhAdmin = (papeis ?? []).some(
+      (p: { user_id: string }) => p.user_id === userData.user.id,
+    );
+    if (existeAdmin && !chamadorEhAdmin) {
+      return new Response(
+        JSON.stringify({ error: "Acesso restrito: apenas administradores criam contas." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const body = await req.json();
     const nome = String(body?.nome ?? "").trim();
     const email = String(body?.email ?? "").trim().toLowerCase();
