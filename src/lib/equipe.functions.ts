@@ -110,10 +110,45 @@ async function montarEquipe(admin: AdminClient, userId: string): Promise<MembroE
   });
   if (erroUsuarios) throw new Error(`Falha ao listar usuários: ${erroUsuarios.message}`);
 
-  const [{ data: perfis }, { data: papeis }] = await Promise.all([
+  let [{ data: perfis }, { data: papeis }] = await Promise.all([
     admin.from("profiles").select("id, nome"),
     admin.from("user_roles").select("user_id, role"),
   ]);
+
+  // Auto-correção: usuário sem NENHUMA linha em user_roles é invisível para as
+  // policies de RLS (todas exigem EXISTS em user_roles) e não consegue ver
+  // produtos/clientes. Garante o cargo mínimo 'vendedor'.
+  const comCargo = new Set((papeis ?? []).map((p) => p.user_id));
+  const semCargo = usuarios.users.filter((u) => !comCargo.has(u.id));
+  if (semCargo.length > 0) {
+    const { error } = await admin
+      .from("user_roles")
+      .upsert(
+        semCargo.map((u) => ({ user_id: u.id, role: "vendedor" as const })),
+        { onConflict: "user_id,role" },
+      );
+    if (!error) {
+      papeis = [
+        ...(papeis ?? []),
+        ...semCargo.map((u) => ({ user_id: u.id, role: "vendedor" as const })),
+      ];
+    }
+  }
+
+  // Auto-correção: perfil ausente deixa o nome vazio na lista e no pedido.
+  const comPerfil = new Set((perfis ?? []).map((p) => p.id));
+  const semPerfil = usuarios.users.filter((u) => !comPerfil.has(u.id));
+  if (semPerfil.length > 0) {
+    const novos = semPerfil.map((u) => ({
+      id: u.id,
+      nome:
+        (typeof u.user_metadata?.["nome"] === "string" ? (u.user_metadata["nome"] as string) : "") ||
+        u.email?.split("@")[0] ||
+        "Vendedor",
+    }));
+    const { error } = await admin.from("profiles").upsert(novos, { onConflict: "id" });
+    if (!error) perfis = [...(perfis ?? []), ...novos];
+  }
 
   const nomePorId = new Map((perfis ?? []).map((p) => [p.id, p.nome]));
   const cargoPorId = new Map<string, Cargo>();
