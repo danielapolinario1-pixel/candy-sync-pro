@@ -114,7 +114,8 @@ function Configuracoes() {
 
         <div className="rounded-2xl bg-card p-4 shadow-card">
           <p className="text-xs font-bold text-primary">
-            <User className="mr-1 inline size-3" /> VENDEDOR
+            <User className="mr-1 inline size-3" />{" "}
+            {sessao?.cargo === "admin" ? "ADMINISTRADOR" : "VENDEDOR"}
           </p>
           <p className="text-lg font-black leading-tight">{sessao?.nome ?? "—"}</p>
           <p className="text-sm text-muted-foreground">{sessao?.email}</p>

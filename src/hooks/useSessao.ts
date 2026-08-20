@@ -5,6 +5,7 @@ export interface Sessao {
   userId: string;
   email: string;
   nome: string;
+  cargo: "admin" | "vendedor";
 }
 
 export function useSessao() {
@@ -15,9 +16,18 @@ export function useSessao() {
     let ativo = true;
 
     async function carregarPerfil(userId: string, email: string, nomeAuth?: string) {
-      const { data } = await supabase.from("profiles").select("nome").eq("id", userId).maybeSingle();
+      const [{ data }, { data: papeis }] = await Promise.all([
+        supabase.from("profiles").select("nome").eq("id", userId).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", userId),
+      ]);
       if (!ativo) return;
-      setSessao({ userId, email, nome: data?.nome || nomeAuth || email.split("@")[0] || "Vendedor" });
+      const cargo = (papeis ?? []).some((p) => p.role === "admin") ? "admin" : "vendedor";
+      setSessao({
+        userId,
+        email,
+        nome: data?.nome || nomeAuth || email.split("@")[0] || "Vendedor",
+        cargo,
+      });
       setCarregando(false);
     }
 
